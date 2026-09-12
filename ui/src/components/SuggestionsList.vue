@@ -12,6 +12,10 @@ const props = defineProps({
   },
 });
 
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 const currentSuggestions = computed(() => {
   if (props.message === "") {
     return [];
@@ -51,7 +55,7 @@ const currentSuggestions = computed(() => {
 
       cloned.params.forEach((param, index) => {
         const wordType = index === cloned.params.length - 1 ? "." : "\\S";
-        const regex = new RegExp(`${cloned.name} (?:\\w+ ){${index}}(?:${wordType}*)$`, "g");
+        const regex = new RegExp(`${escapeRegExp(cloned.name)} (?:\\w+ ){${index}}(?:${wordType}*)$`, "g");
         param.disabled = props.message.match(regex) == null;
       });
 

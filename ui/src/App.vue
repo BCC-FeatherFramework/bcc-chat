@@ -1,6 +1,7 @@
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import { nuiPost } from "./api";
+import { emojiGroups, searchEmoji } from "./emoji.mjs";
 import MessageItem from "./components/MessageItem.vue";
 import SuggestionsList from "./components/SuggestionsList.vue";
 
@@ -12,13 +13,13 @@ const CHAT_HIDE_STATES = {
 
 const defaultMode = {
   name: "all",
-  displayName: "General",
+  displayName: "",
   color: "#f5f1df",
 };
 
 const globalMode = {
   name: "_global",
-  displayName: "Global",
+  displayName: "",
   color: "#d8c59f",
   hidden: true,
   isGlobal: true,
@@ -29,49 +30,58 @@ const state = reactive({
   showWindow: false,
   showHideState: false,
   showEmojiPicker: false,
+  hidden: false,
   hideState: CHAT_HIDE_STATES.SHOW_WHEN_ACTIVE,
   message: "",
   messages: [],
   oldMessages: [],
   oldMessagesIndex: -1,
   showOlderMessages: false,
-  templates: {
-    default: "<b>{0}</b>: {1}",
-    defaultAlt: "{0}",
-    print: "<pre>{0}</pre>",
-  },
   suggestions: [],
   removedSuggestions: [],
   modes: [defaultMode, globalMode],
-  modeIdx: 0,
+  activeModeName: defaultMode.name,
   config: {
     hideOlderMessagesHours: 3,
+    historyEnabled: false,
   },
   locale: {
-    general: "General",
-    ooc: "OOC",
-    admin: "Admin",
-    announcements: "Announcements",
-    other: "Other",
-    visible: "Visible",
-    hidden: "Hidden",
-    whenActive: "When active",
-    showOlderMessages: "Show older messages",
-    hideOlderMessages: "Hide older messages",
-    nameButton: "Name",
-    nameTitle: "Chat Name",
+    general: "",
+    global: "",
+    ooc: "",
+    admin: "",
+    announcements: "",
+    other: "",
+    visible: "",
+    hidden: "",
+    whenActive: "",
+    showOlderMessages: "",
+    hideOlderMessages: "",
+    nameButton: "",
+    nameTitle: "",
     localeCode: "en-GB",
-    emojiFaces: "Faces",
-    emojiPeople: "People",
-    emojiHearts: "Hearts",
-    emojiWestern: "Western",
-    emojiAnimals: "Animals",
-    emojiWorld: "World",
+    emojiFaces: "",
+    emojiPeople: "",
+    emojiHearts: "",
+    emojiWestern: "",
+    emojiAnimals: "",
+    emojiWorld: "",
+    emojiComponents: "",
+    emojiFood: "",
+    emojiTravel: "",
+    emojiActivities: "",
+    emojiObjects: "",
+    emojiSymbols: "",
+    emojiFlags: "",
+    emojiSearch: "",
+    emojiNoResults: "",
   },
 });
 
 const inputRef = ref(null);
 const messagesRef = ref(null);
+const activeEmojiGroupKey = ref("emojiWestern");
+const emojiQuery = ref("");
 
 let focusTimer = null;
 let showWindowTimer = null;
@@ -85,46 +95,27 @@ const visibleModes = computed(() =>
   state.modes.filter((mode) => !mode.hidden)
 );
 
-const emojiGroups = [
-  {
-    labelKey: "emojiFaces",
-    icon: "😀",
-    items: ["😀", "😁", "😂", "🤣", "😊", "😉", "😍", "😘", "😎", "🤔", "😴", "😭", "😡", "🥶", "🥵", "🤯"],
-  },
-  {
-    labelKey: "emojiPeople",
-    icon: "🤠",
-    items: ["🤠", "🫡", "🙏", "👏", "👍", "👎", "👌", "🤝", "💪", "🙌", "👋", "☝️", "✌️", "🤞", "🫶", "🧠"],
-  },
-  {
-    labelKey: "emojiHearts",
-    icon: "❤️",
-    items: ["❤️", "🧡", "💛", "💚", "💙", "💜", "🖤", "🤍", "🤎", "💔", "❣️", "💕", "💞", "💘", "💖", "✨"],
-  },
-  {
-    labelKey: "emojiWestern",
-    icon: "🍻",
-    items: ["🍻", "🥃", "🚬", "💰", "🪙", "🔫", "🗡️", "🎯", "⭐", "🔥", "🐎", "🤠", "🧨", "🪵", "🏕️", "🌵"],
-  },
-  {
-    labelKey: "emojiAnimals",
-    icon: "🐺",
-    items: ["🐺", "🦌", "🐻", "🦅", "🐍", "🐂", "🐗", "🐐", "🦬", "🐇", "🦊", "🦝", "🐟", "🦉", "🐴", "🪶"],
-  },
-  {
-    labelKey: "emojiWorld",
-    icon: "🌙",
-    items: ["🌙", "☀️", "⛈️", "🌧️", "❄️", "🌫️", "🌲", "🌾", "🪨", "🏔️", "🏞️", "🌊", "🛶", "🚂", "🏠", "⛺"],
-  },
-];
-
 const activeMode = computed(() => {
   if (!state.modes.length) {
     return defaultMode;
   }
 
-  const idx = Math.min(state.modeIdx, state.modes.length - 1);
-  return state.modes[idx];
+  return state.modes.find((mode) => mode.name === state.activeModeName) || state.modes[0];
+});
+
+const activeEmojiGroup = computed(() =>
+  emojiGroups.find((group) => group.labelKey === activeEmojiGroupKey.value) || emojiGroups[0]
+);
+
+const visibleEmoji = computed(() => {
+  if (!emojiQuery.value.trim()) {
+    return activeEmojiGroup.value.items;
+  }
+
+  return searchEmoji(
+    [...new Set(emojiGroups.flatMap((group) => group.items))],
+    emojiQuery.value
+  );
 });
 
 const modePrefix = computed(() => {
@@ -230,10 +221,13 @@ function onMessage(event) {
     ON_MODE_ADD: ({ mode }) => addMode(mode),
     ON_MODE_REMOVE: ({ name }) => removeMode(name),
     ON_CONFIG: ({ config }) => updateConfig(config),
+    ON_THEME: ({ theme }) => updateTheme(theme),
     ON_LOCALE: ({ locale }) => updateLocale(locale),
     ON_SCREEN_STATE_CHANGE: ({ hideState, fromUserInteraction }) =>
       updateScreenState(hideState, fromUserInteraction),
-    ON_TEMPLATE_ADD: ({ template }) => addTemplate(template),
+    ON_HIDE_STATE: ({ hidden }) => {
+      state.hidden = !!hidden;
+    },
     ON_UPDATE_THEMES: () => {},
   };
 
@@ -271,6 +265,11 @@ function openChat() {
 
 function addMessage(message) {
   state.messages.push(normalizeIncomingMessage(message));
+  const configured = Number(state.config.maximumVisibleMessages);
+  const maximum = Number.isFinite(configured) && configured >= 0 ? configured : 100;
+  if (state.messages.length > maximum) {
+    state.messages.splice(0, state.messages.length - maximum);
+  }
 }
 
 function normalizeIncomingMessage(message) {
@@ -336,9 +335,8 @@ function addSuggestion(suggestion) {
 }
 
 function removeSuggestion(name) {
-  if (!state.removedSuggestions.includes(name)) {
-    state.removedSuggestions.push(name);
-  }
+  state.suggestions = state.suggestions.filter((item) => item.name !== name);
+  state.removedSuggestions = state.removedSuggestions.filter((item) => item !== name);
 }
 
 function addMode(mode) {
@@ -359,6 +357,23 @@ function updateConfig(config) {
     ...message,
     isOlderThanThreshold: Date.now() - message.createdAtMs > getOldMessageThresholdMs(),
   }));
+
+  const accessibility = state.config.accessibility || {};
+  const scale = Math.min(1.5, Math.max(0.8, Number(accessibility.fontScale) || 1));
+  document.documentElement.style.setProperty("--chat-font-scale", String(scale));
+  document.documentElement.classList.toggle("reduced-motion", accessibility.reducedMotion === true);
+  document.documentElement.classList.toggle("compact-chat", accessibility.density === "compact");
+}
+
+function updateTheme(theme) {
+  const tokens = theme?.tokens || {};
+  const mapping = {
+    background: "--chat-background", panel: "--chat-panel", border: "--chat-border",
+    primary: "--chat-primary", muted: "--chat-muted", danger: "--chat-danger",
+  };
+  Object.entries(mapping).forEach(([key, property]) => {
+    if (typeof tokens[key] === "string") document.documentElement.style.setProperty(property, tokens[key]);
+  });
 }
 
 function updateLocale(locale) {
@@ -367,7 +382,17 @@ function updateLocale(locale) {
     ...locale,
   };
 
+  // Mutate through the reactive `state.modes` entries (not the raw defaultMode/globalMode
+  // objects) so Vue's reactivity actually picks up the change and the tab labels re-render.
+  const generalEntry = state.modes.find((mode) => mode.name === defaultMode.name);
+  if (generalEntry) generalEntry.displayName = state.locale.general;
+  const globalEntry = state.modes.find((mode) => mode.name === globalMode.name);
+  if (globalEntry) globalEntry.displayName = state.locale.global;
+
+  // Keep the raw template objects in sync too, since they're reused as fallbacks
+  // (e.g. activeMode()'s empty-state default, removeMode()'s reset) outside state.modes.
   defaultMode.displayName = state.locale.general;
+  globalMode.displayName = state.locale.global;
 }
 
 function removeMode(name) {
@@ -375,17 +400,13 @@ function removeMode(name) {
   if (!state.modes.length) {
     state.modes = [defaultMode];
   }
-  state.modeIdx = Math.min(state.modeIdx, state.modes.length - 1);
+  if (state.activeModeName === name) {
+    state.activeModeName = state.modes[0].name;
+  }
 }
 
 function toggleOlderMessages() {
   state.showOlderMessages = !state.showOlderMessages;
-}
-
-function addTemplate(template) {
-  if (!state.templates[template.id]) {
-    state.templates[template.id] = template.html;
-  }
 }
 
 function updateScreenState(hideState, fromUserInteraction) {
@@ -417,11 +438,12 @@ function clearShowWindowTimer() {
 
 function resetShowWindowTimer() {
   clearShowWindowTimer();
+  const configuredDelay = Number(state.config.fadeDelayMs);
   showWindowTimer = window.setTimeout(() => {
     if (state.hideState !== CHAT_HIDE_STATES.ALWAYS_SHOW && !state.showInput) {
       state.showWindow = false;
     }
-  }, 7000);
+  }, Number.isFinite(configuredDelay) && configuredDelay >= 0 ? configuredDelay : 10000);
 }
 
 function cycleMode(backwards = false) {
@@ -429,22 +451,27 @@ function cycleMode(backwards = false) {
     return;
   }
 
+  let idx = state.modes.findIndex((mode) => mode.name === state.activeModeName);
+  if (idx < 0) idx = 0;
+
   do {
     if (backwards) {
-      state.modeIdx -= 1;
-      if (state.modeIdx < 0) {
-        state.modeIdx = state.modes.length - 1;
+      idx -= 1;
+      if (idx < 0) {
+        idx = state.modes.length - 1;
       }
     } else {
-      state.modeIdx = (state.modeIdx + 1) % state.modes.length;
+      idx = (idx + 1) % state.modes.length;
     }
-  } while (state.modes[state.modeIdx].hidden);
+  } while (state.modes[idx].hidden);
+
+  state.activeModeName = state.modes[idx].name;
 }
 
 function selectModeByName(name) {
-  const index = state.modes.findIndex((mode) => mode.name === name && !mode.hidden);
-  if (index >= 0) {
-    state.modeIdx = index;
+  const mode = state.modes.find((item) => item.name === name && !item.hidden);
+  if (mode) {
+    state.activeModeName = mode.name;
   }
 }
 
@@ -503,8 +530,15 @@ async function send() {
   });
 
   state.oldMessages.unshift(state.message);
+  if (state.oldMessages.length > 50) state.oldMessages.length = 50;
   state.oldMessagesIndex = -1;
-  await hideInput(false);
+  if (state.config.submitCloses !== false) {
+    await hideInput(false);
+  } else {
+    state.message = "";
+    await nextTick();
+    inputRef.value?.focus();
+  }
 }
 
 async function hideInput(canceled) {
@@ -532,6 +566,9 @@ async function hideInput(canceled) {
 
 function toggleEmojiPicker() {
   state.showEmojiPicker = !state.showEmojiPicker;
+  if (state.showEmojiPicker) {
+    emojiQuery.value = "";
+  }
   if (!state.showEmojiPicker && inputRef.value) {
     inputRef.value.focus();
   }
@@ -545,7 +582,6 @@ async function openDisplayNameMenu() {
 
 async function addEmoji(emoji) {
   state.message += emoji;
-  state.showEmojiPicker = false;
   await nextTick();
   resizeInput();
   if (inputRef.value) {
@@ -555,15 +591,20 @@ async function addEmoji(emoji) {
 
 watch(
   () => activeMode.value?.name,
-  () => {
+  (name) => {
     state.showOlderMessages = false;
+    if (state.config.historyEnabled && name && name !== "_global") {
+      nuiPost("selectChannel", {
+        channelKey: name === "all" ? "local.say" : name,
+      });
+    }
   }
 );
 </script>
 
 <template>
   <div class="chat-shell">
-    <section class="chat-window" :class="{ hidden: !state.showWindow }">
+    <section class="chat-window" :class="{ hidden: !state.showWindow || state.hidden }">
       <div v-if="visibleModes.length > 1" class="chat-tabs">
         <button
           v-for="mode in visibleModes"
@@ -591,13 +632,12 @@ watch(
           :key="message.id"
           :message="message"
           :active-mode="activeMode"
-          :templates="state.templates"
           :locale-code="state.locale.localeCode"
         />
       </div>
     </section>
 
-    <section class="chat-input-shell">
+    <section class="chat-input-shell" :class="{ hidden: state.hidden }">
       <div v-if="state.showInput" class="chat-input-row">
         <span class="mode-pill" :style="{ color: activeMode.color }">{{ modePrefix }}</span>
         <textarea
@@ -611,28 +651,55 @@ watch(
           @keydown.enter.exact.prevent="send"
           @keydown="onInputKeydown"
         />
-        <button type="button" class="settings-button" :title="state.locale.nameTitle" @click="openDisplayNameMenu">
+        <button v-if="state.config.displayNamePreferences" type="button" class="settings-button" :title="state.locale.nameTitle" @click="openDisplayNameMenu">
           ⚙
         </button>
-        <button type="button" class="emoji-button" @click="toggleEmojiPicker">🙂</button>
+        <button type="button" class="emoji-button" @click="toggleEmojiPicker">
+          <span class="native-emoji emoji-button-icon" aria-hidden="true">🤠</span>
+        </button>
       </div>
 
       <div v-if="state.showInput && state.showEmojiPicker" class="emoji-panel">
-        <div v-for="group in emojiGroups" :key="group.labelKey" class="emoji-group">
+        <div class="emoji-toolbar">
+          <button
+            v-for="group in emojiGroups"
+            :key="group.labelKey"
+            type="button"
+            class="emoji-category"
+            :class="{ active: activeEmojiGroup.labelKey === group.labelKey && !emojiQuery }"
+            :title="state.locale[group.labelKey] || group.labelKey"
+            :aria-label="state.locale[group.labelKey] || group.labelKey"
+            @click="activeEmojiGroupKey = group.labelKey; emojiQuery = ''"
+          >
+            <span class="native-emoji emoji-heading" aria-hidden="true">{{ group.icon }}</span>
+          </button>
+        </div>
+        <input
+          v-model="emojiQuery"
+          type="search"
+          class="emoji-search"
+          :placeholder="state.locale.emojiSearch"
+          :aria-label="state.locale.emojiSearch"
+        />
+        <div class="emoji-group">
           <div class="emoji-group-title">
-            <span class="emoji-group-icon">{{ group.icon }}</span>
-            <span>{{ state.locale[group.labelKey] || group.labelKey }}</span>
+            <span class="native-emoji emoji-heading" aria-hidden="true">{{ activeEmojiGroup.icon }}</span>
+            <span>{{ state.locale[activeEmojiGroup.labelKey] || activeEmojiGroup.labelKey }}</span>
+            <span class="emoji-count">{{ visibleEmoji.length }}</span>
           </div>
           <div class="emoji-grid">
             <button
-              v-for="emoji in group.items"
-              :key="`${group.labelKey}-${emoji}`"
+              v-for="emoji in visibleEmoji"
+              :key="emoji"
               type="button"
               class="emoji-chip"
               @click="addEmoji(emoji)"
             >
-              {{ emoji }}
+              <span class="native-emoji emoji-picker-item">{{ emoji }}</span>
             </button>
+          </div>
+          <div v-if="visibleEmoji.length === 0" class="emoji-empty">
+            {{ state.locale.emojiNoResults }}
           </div>
         </div>
       </div>
@@ -647,6 +714,23 @@ watch(
 </template>
 
 <style>
+:root {
+  --chat-font-scale: 1;
+  --chat-background: #16120fcc;
+  --chat-panel: #211a16ee;
+  --chat-border: #6e543a;
+  --chat-primary: #f4ebdd;
+  --chat-muted: #b7aa97;
+  --chat-danger: #e06c5f;
+}
+
+.reduced-motion *, .reduced-motion *::before, .reduced-motion *::after {
+  animation-duration: 0.001ms !important;
+  transition-duration: 0.001ms !important;
+}
+
+.compact-chat .chat-messages { line-height: 1.1; }
+
 :root {
   font-family: "Lato", Helvetica, Arial, sans-serif;
 }
@@ -743,6 +827,8 @@ body {
   min-width: 28rem;
   height: 22%;
   transition: opacity 0.18s ease, transform 0.18s ease;
+  color: var(--chat-primary);
+  font-size: calc(1em * var(--chat-font-scale));
 }
 
 .chat-tabs {
@@ -757,8 +843,8 @@ body {
   border: 0;
   border-radius: 4px;
   padding: 0.28rem 0.55rem;
-  background: rgba(0, 0, 0, 0.58);
-  color: rgba(255, 255, 255, 0.72);
+  background: var(--chat-panel);
+  color: var(--chat-muted);
   font-size: 1.2vh;
   font-weight: 700;
   letter-spacing: 0.04em;
@@ -851,6 +937,7 @@ body {
     url("../img/background.png");
   background-size: 100% 100%;
   background-repeat: no-repeat;
+  border: 1px solid var(--chat-border);
   border-radius: 5px;
   padding: 0;
   gap: 0;
@@ -960,6 +1047,46 @@ body {
   border-radius: 999px;
 }
 
+.emoji-toolbar {
+  display: grid;
+  grid-template-columns: repeat(11, minmax(0, 1fr));
+  gap: 0.25rem;
+  position: sticky;
+  top: -0.65rem;
+  z-index: 1;
+  padding: 0.45rem 0;
+  background: rgba(0, 0, 0, 0.94);
+}
+
+.emoji-category {
+  border: 0;
+  border-bottom: 2px solid transparent;
+  padding: 0.3rem 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.emoji-category:hover,
+.emoji-category.active {
+  border-bottom-color: var(--chat-border);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.emoji-search {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 4px;
+  padding: 0.42rem 0.55rem;
+  color: var(--chat-primary);
+  background: rgba(255, 255, 255, 0.08);
+  outline: none;
+}
+
+.emoji-search:focus {
+  border-color: var(--chat-border);
+}
+
 .emoji-group {
   display: flex;
   flex-direction: column;
@@ -977,8 +1104,40 @@ body {
   letter-spacing: 0.04em;
 }
 
+.emoji-count {
+  margin-left: auto;
+  color: var(--chat-muted);
+}
+
+.emoji-empty {
+  padding: 0.8rem 0;
+  color: var(--chat-muted);
+  text-align: center;
+}
+
 .emoji-group-icon {
   font-size: 1.5vh;
+}
+
+.native-emoji {
+  display: inline-block;
+  font-family: "Segoe UI Emoji", "Noto Color Emoji", "Apple Color Emoji", sans-serif;
+  font-style: normal;
+  font-weight: 400;
+  line-height: 1;
+  pointer-events: none;
+}
+
+.emoji-button-icon {
+  font-size: 1.15rem;
+}
+
+.emoji-heading {
+  font-size: 1.5vh;
+}
+
+.emoji-picker-item {
+  font-size: 1.05rem;
 }
 
 .emoji-grid {

@@ -33,7 +33,7 @@ function zipDirectory(sourceDir, outFolder, outPath) {
     })
     
     console.info(">".blue, "Cloning UI build into release...");
-    fs.cpSync('./dist', '../temp/ui', {recursive: true});
+    fs.cpSync('./dist', '../temp/ui/dist', {recursive: true});
     
     let name = path.basename(path.resolve('../'));
     let output_file = `releases/${version}/${name}`
